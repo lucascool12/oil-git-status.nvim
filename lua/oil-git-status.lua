@@ -200,7 +200,7 @@ local function setup(config)
 
       vim.b[buffer].oil_git_status_started = true
 
-      vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost" }, {
+      vim.api.nvim_create_autocmd({ "BufReadPost", "BufWritePost", "BufEnter" }, {
         buffer = buffer,
 
         callback = function()
