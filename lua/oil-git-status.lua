@@ -124,27 +124,32 @@ local function load_git_status(buffer, callback)
   local oil_url = vim.api.nvim_buf_get_name(buffer)
   local file_url = oil_url:gsub("^oil", "file")
   local path = vim.uri_to_fname(file_url)
-  concurrent({
-    function(cb)
-      system({ "git", "-c", "status.relativePaths=true", "status", ".", "--short" }, { text = true, cwd = path }, cb)
-    end,
-    function(cb)
-      if current_config.show_ignored then
-        system({ "git", "ls-tree", "HEAD", ".", "--name-only" }, { text = true, cwd = path }, cb)
-      else
-        cb({ code = 0, stdout = "" })
-      end
-    end,
-  }, function(results)
-    vim.schedule(function()
-      local git_status_results = results[1]
-      local git_ls_tree_results = results[2]
+  vim.uv.fs_stat(path, function (err, _)
+    if err then
+      return
+    end
+    concurrent({
+      function(cb)
+        system({ "git", "-c", "status.relativePaths=true", "status", ".", "--short" }, { text = true, cwd = path }, cb)
+      end,
+      function(cb)
+        if current_config.show_ignored then
+          system({ "git", "ls-tree", "HEAD", ".", "--name-only" }, { text = true, cwd = path }, cb)
+        else
+          cb({ code = 0, stdout = "" })
+        end
+      end,
+    }, function(results)
+      vim.schedule(function()
+        local git_status_results = results[1]
+        local git_ls_tree_results = results[2]
 
-      if git_ls_tree_results.code ~= 0 or git_status_results.code ~= 0 then
-        return callback()
-      end
+        if git_ls_tree_results.code ~= 0 or git_status_results.code ~= 0 then
+          return callback()
+        end
 
-      callback(parse_git_status(git_status_results.stdout, git_ls_tree_results.stdout))
+        callback(parse_git_status(git_status_results.stdout, git_ls_tree_results.stdout))
+      end)
     end)
   end)
 end
