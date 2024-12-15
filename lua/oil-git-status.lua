@@ -34,7 +34,7 @@ local function set_filename_status_code(filename, index_status_code, working_sta
   end
 end
 
-local function parse_git_status(git_status_stdout, git_ls_tree_stdout)
+local function parse_git_status(git_status_stdout)
   local status_lines = vim.split(git_status_stdout, "\n")
   local status = {}
   for _, line in ipairs(status_lines) do
@@ -47,12 +47,6 @@ local function parse_git_status(git_status_stdout, git_ls_tree_stdout)
     end
 
     set_filename_status_code(filename, index_status_code, working_status_code, status)
-  end
-
-  for _, filename in ipairs(vim.split(git_ls_tree_stdout, "\n")) do
-    if not status[filename] then
-      status[filename] = { index = " ", working_tree = " " }
-    end
   end
 
   return status
@@ -85,7 +79,7 @@ local function add_status_extmarks(buffer, status)
       local entry = oil.get_entry_on_line(buffer, n)
       if entry then
         local name = entry.name
-        local status_codes = status[name] or (current_config.show_ignored and { index = "!", working_tree = "!" })
+        local status_codes = status[name]
 
         if status_codes then
           vim.api.nvim_buf_set_extmark(buffer, namespace, n - 1, 0, {
@@ -111,6 +105,7 @@ local function concurrent(fns, callback)
   for i, fn in ipairs(fns) do
     fn(function(args, ...)
       number_of_results = number_of_results + 1
+      vim.print(vim.inspect(args.stdout))
       results[i] = args
 
       if number_of_results == #fns then
@@ -124,27 +119,43 @@ local function load_git_status(buffer, callback)
   local oil_url = vim.api.nvim_buf_get_name(buffer)
   local file_url = oil_url:gsub("^oil", "file")
   local path = vim.uri_to_fname(file_url)
-  concurrent({
-    function(cb)
-      system({ "git", "-c", "status.relativePaths=true", "status", ".", "--short" }, { text = true, cwd = path }, cb)
-    end,
-    function(cb)
-      if current_config.show_ignored then
-        system({ "git", "ls-tree", "HEAD", ".", "--name-only" }, { text = true, cwd = path }, cb)
-      else
-        cb({ code = 0, stdout = "" })
-      end
-    end,
-  }, function(results)
-    vim.schedule(function()
-      local git_status_results = results[1]
-      local git_ls_tree_results = results[2]
+  vim.uv.fs_stat(path, function (err, _)
+    if err then
+      return
+    end
+    concurrent({
+      function (cb)
+        local args = { "git", "-c", "status.relativePaths=true", "status", ".", "--short" }
+        if current_config.show_ignored then
+          table.insert(args, "--ignored")
+        end
+        system(
+          args,
+          { text = true, cwd = path },
+          cb
+        )
+      end,
+      -- function (cb)
+      --   if current_config.show_ignored then
+      --     system({ "git", "ls-tree", "HEAD", ".", "--name-only" }, { text = true, cwd = path }, cb)
+      --   else
+      --     cb({ code = 0, stdout = "" })
+      --   end
+      -- end
+    }, function(results)
+      vim.schedule(function()
+        local git_status_results = results[1]
+        -- local git_ls_tree_results = results[2]
 
-      if git_ls_tree_results.code ~= 0 or git_status_results.code ~= 0 then
-        return callback()
-      end
-
-      callback(parse_git_status(git_status_results.stdout, git_ls_tree_results.stdout))
+        if git_status_results.code ~= 0 then
+          return callback()
+        end
+        -- vim.print("restart!")
+        vim.print(vim.inspect(git_status_results.stdout))
+        -- vim.print(vim.inspect(git_status_results.stderr))
+        -- vim.print(vim.inspect(git_ls_tree_results.stdout))
+        callback(parse_git_status(git_status_results.stdout))
+      end)
     end)
   end)
 end
