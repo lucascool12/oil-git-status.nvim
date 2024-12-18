@@ -12,6 +12,10 @@ local function set_filename_status_code(filename, index_status_code, working_sta
   local dir_index = filename:find("/")
   if dir_index ~= nil then
     filename = filename:sub(1, dir_index - 1)
+    local nested = string.sub(filename, dir_index):find("/")
+    if nested == nil and working_status_code == "!" then
+      return
+    end
 
     if not status[filename] then
       status[filename] = {
